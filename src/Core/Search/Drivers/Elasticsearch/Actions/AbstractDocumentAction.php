@@ -30,6 +30,19 @@ class AbstractDocumentAction extends Action
                 $categories = $this->getCategories($model);
                 $indexable->set('id', $model->encoded_id);
 
+                if ($model->primaryAsset) {
+                    $indexable->set('thumbnail', $model->primaryAsset->url);
+                }
+
+                $route = $model->routes->first();
+
+                $indexable->set('path', $route->path);
+                $indexable->set('slug', $route->slug);
+
+                if ($model->firstVariant) {
+                    $indexable->set('variant_id', $model->firstVariant->encodedId());
+                }
+
                 $groupPricing = [];
 
                 if (! empty($item['data'])) {

@@ -68,8 +68,6 @@ class Search extends Action
         $this->start = now();
         $this->set('search_type', $this->search_type ? Str::plural($this->search_type) : 'products');
 
-        \Log::debug("Start: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
         if (! $this->index) {
             $prefix = config('getcandy.search.index_prefix');
             $language = app()->getLocale();
@@ -87,15 +85,9 @@ class Search extends Action
         $this->language = $this->language ?: app()->getLocale();
         $this->set('category', $this->category ? explode(':', $this->category) : []);
 
-        \Log::debug("Building client: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
         $client = FetchClient::run();
 
-        \Log::debug("Adding search term: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
         $term = $this->term ? FetchTerm::run($this->attributes) : null;
-
-        \Log::debug("Fetching filters: " . now()->subMillisecond($this->start->format('v'))->format('v'));
 
         $filters = FetchFilters::run([
             'category' => $this->category,
@@ -112,8 +104,6 @@ class Search extends Action
 
         $boolQuery = new BoolQuery;
 
-        \Log::debug("Setting term and suggestion: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
         if ($term) {
             $boolQuery->addMust($term);
 
@@ -123,17 +113,12 @@ class Search extends Action
             ]);
         }
 
-        \Log::debug("Fetching aggregations: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
-
         $aggregations = FetchAggregations::run();
 
         $query = SetExcludedFields::run(['query' => $query]);
 
         // Set filters as post filters
         $postFilter = new BoolQuery;
-
-        \Log::debug("Applying pre filters: " . now()->subMillisecond($this->start->format('v'))->format('v'));
 
         $preFilters = $filters->filter(function ($filter) {
             return in_array($filter->handle, $this->topFilters);
@@ -145,9 +130,6 @@ class Search extends Action
                  $filter->getQuery()
              );
         });
-
-        \Log::debug("Applying post filters: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
 
         $postFilters = $filters->filter(function ($filter) {
             return ! in_array($filter->handle, $this->topFilters);
@@ -168,9 +150,6 @@ class Search extends Action
 
         $query->setPostFilter($postFilter);
 
-        \Log::debug("Applying aggregations: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
-
         // // $globalAggregation = new \Elastica\Aggregation\GlobalAggregation('all_products');
         foreach ($aggregations as $aggregation) {
             if (method_exists($aggregation, 'get')) {
@@ -183,21 +162,13 @@ class Search extends Action
             }
         }
 
-        \Log::debug("Setting query: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
-
         $query->setQuery($boolQuery);
-
-        \Log::debug("Set sorting: " . now()->subMillisecond($this->start->format('v'))->format('v'));
 
         $query = SetSorting::run([
             'query' => $query,
             'type' => $this->search_type,
             'sort' => $this->sort,
         ]);
-
-        \Log::debug("Set highlighting: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
 
         $query->setHighlight(config('getcandy.search.highlight') ?? [
             'pre_tags' => ['<em class="highlight">'],
@@ -210,14 +181,11 @@ class Search extends Action
             ],
         ]);
 
-        $query = $query->setSource(false)->setStoredFields([]);
-
-        \Log::debug("Initialising the search HTTP client: " . now()->subMillisecond($this->start->format('v'))->format('v'));
+        // $query = $query->setSource(false)->setStoredFields([]);
 
 
         $search = new ElasticaSearch($client);
 
-        \Log::debug("Before ES Query: " . now()->subMillisecond($this->start->format('v'))->format('v'));
         $result = $search
             ->addIndex(
                 $this->index ?: config('getcandy.search.index')
@@ -226,8 +194,6 @@ class Search extends Action
                 ElasticaSearch::OPTION_SEARCH_TYPE,
                 ElasticaSearch::OPTION_SEARCH_TYPE_DFS_QUERY_THEN_FETCH
             )->search($query);
-
-            \Log::debug("After ES Query: " . now()->subMillisecond($this->start->format('v'))->format('v'));
 
         return $result;
     }
@@ -240,57 +206,59 @@ class Search extends Action
      */
     public function jsonResponse($result, $request)
     {
-        \Log::debug("Got response: " . now()->subMillisecond($this->start->format('v'))->format('v'));
         $ids = collect();
-        $results = collect($result->getResults());
+        $results = collect($result->getResults())->map(function ($result) {
+            return [
+                'name' => $result->name,
+                'sku' => $result->sku[0],
+                'price' => $result->min_price,
+                'thumbnail' => $result->thumbnail,
+                'slug' => $result->slug,
+                'variant_id' => $result->variant_id,
+            ];
+            return $result->getSource();
+        });
 
-        if ($results->count()) {
-            foreach ($results as $r) {
-                $ids->push($r->getId());
-            }
-        }
 
-        \Log::debug("Mapping Aggregations: " . now()->subMillisecond($this->start->format('v'))->format('v'));
+        // if ($results->count()) {
+        //     foreach ($results as $r) {
+        //         $ids->push($r->getId());
+        //     }
+        // }
 
 
         $aggregations = MapAggregations::run([
             'aggregations' => $result->getAggregations(),
         ]);
 
-        \Log::debug("Fetching searched IDs: " . now()->subMillisecond($this->start->format('v'))->format('v'));
+        // $models = FetchSearchedIds::run([
+        //     'model' => $this->search_type == 'products' ? Product::class : Category::class,
+        //     'encoded_ids' => $ids->toArray(),
+        //     'include' => $request->include,
+        //     'counts' => $request->counts,
+        // ]);
 
-        $models = FetchSearchedIds::run([
-            'model' => $this->search_type == 'products' ? Product::class : Category::class,
-            'encoded_ids' => $ids->toArray(),
-            'include' => $request->include,
-            'counts' => $request->counts,
-        ]);
+        // $resource = ProductCollection::class;
 
-        \Log::debug("Got IDs: " . now()->subMillisecond($this->start->format('v'))->format('v'));
-
-        $resource = ProductCollection::class;
-
-        if ($this->search_type == 'categories') {
-            $resource = CategoryCollection::class;
-        }
+        // if ($this->search_type == 'categories') {
+        //     $resource = CategoryCollection::class;
+        // }
 
         $paginator = new LengthAwarePaginator(
-            $models,
+            $results,
             $result->getTotalHits(),
             $result->getQuery()->getParam('size'),
             $this->page ?: 1
         );
 
-        \Log::debug("Building response : " . now()->subMillisecond($this->start->format('v'))->format('v'));
+        // $response = $paginator->additional([
+        //     'meta' => [
+        //         'count' => $results->count(),
+        //         'aggregations' => $aggregations,
+        //         'highlight' => $result->getQuery()->getParam('highlight'),
+        //     ],
+        // ]);
 
-        $response = (new $resource($paginator))->additional([
-            'meta' => [
-                'count' => $models->count(),
-                'aggregations' => $aggregations,
-                'highlight' => $result->getQuery()->getParam('highlight'),
-            ],
-        ]);
-
-        return $response;
+        return $paginator;
     }
 }

@@ -10,6 +10,18 @@ class ProductIndexable extends AbstractIndexable
             'id' => [
                 'type' => 'text',
             ],
+            'thumbnail' => [
+                'type' => 'text',
+            ],
+            'variant_id' => [
+                'type' => 'text',
+            ],
+            'path' => [
+                'type' => 'text',
+            ],
+            'slug' => [
+                'type' => 'text',
+            ],
             'description' => [
                 'type' => 'text',
                 'analyzer' => 'standard',
